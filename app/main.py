@@ -13,6 +13,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from prometheus_client import make_asgi_app
 
@@ -56,6 +57,17 @@ def create_app() -> FastAPI:
         version="1.0.0",
         debug=s.DEBUG,
         lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[
+            "https://backend-portfolio-two-ebon.vercel.app/", 
+            "http://localhost:3000",              
+        ],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # ── Exception handlers ────────────────────────────────────────────────────
