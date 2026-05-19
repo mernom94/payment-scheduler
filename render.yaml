@@ -3,7 +3,7 @@ services:
     name: payment-scheduler
     runtime: python
     plan: free
-    buildCommand: pip install -r requirements.txt && chmod +x start.sh
+    buildCommand: pip install -e && chmod +x start.sh
     startCommand: ./start.sh
     healthCheckPath: /health/live
     envVars:
