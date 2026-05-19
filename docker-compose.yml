@@ -1,0 +1,107 @@
+version: "3.9"
+
+# All services load secrets from .env (copy from .env.example).
+# Infrastructure connection strings are overridden per-service below
+# so they point to the docker-compose network names, not localhost.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: payment_scheduler
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build: .
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    env_file: .env
+    ports:
+      - "8000:8000"
+    environment:
+      # Override DSN/URL to use docker-compose service hostnames
+      POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/payment_scheduler
+      REDIS_URL: redis://redis:6379/0
+      LOG_LEVEL: INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  scheduler:
+    build: .
+    command: python -m app.workers.scheduler
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/payment_scheduler
+      REDIS_URL: redis://redis:6379/0
+      WORKER_ID: scheduler-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  executor:
+    build: .
+    command: python -m app.workers.executor
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/payment_scheduler
+      REDIS_URL: redis://redis:6379/0
+      WORKER_ID: executor-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    deploy:
+      replicas: 3
+
+  recovery:
+    build: .
+    command: python -m app.workers.recovery
+    env_file: .env
+    environment:
+      POSTGRES_DSN: postgresql+asyncpg://postgres:postgres@postgres:5432/payment_scheduler
+      REDIS_URL: redis://redis:6379/0
+      WORKER_ID: recovery-1
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  prometheus:
+    image: prom/prometheus:v2.51.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    ports:
+      - "16686:16686"   # UI
+      - "4317:4317"     # OTLP gRPC
+
+volumes:
+  pgdata:
